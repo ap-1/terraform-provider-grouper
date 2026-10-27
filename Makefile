@@ -23,6 +23,7 @@ test:
 
 grouper-up:
 	$(GROUPER_COMPOSE) up -d --wait
+	$(GROUPER_COMPOSE) exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -q < testdata/grouper/seed.sql
 
 grouper-down:
 	$(GROUPER_COMPOSE) down -v
