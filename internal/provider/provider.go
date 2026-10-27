@@ -22,9 +22,17 @@ type grouperProvider struct {
 }
 
 type grouperProviderModel struct {
-	URL      types.String `tfsdk:"url"`
-	Username types.String `tfsdk:"username"`
-	Password types.String `tfsdk:"password"`
+	URL           types.String `tfsdk:"url"`
+	Username      types.String `tfsdk:"username"`
+	Password      types.String `tfsdk:"password"`
+	SubjectSource types.String `tfsdk:"subject_source"`
+}
+
+// What the provider hands its resources and data sources
+type providerData struct {
+	client *grouper.Client
+	// Source of people added as members, or empty to search every source
+	subjectSource string
 }
 
 func New(version string) func() provider.Provider {
@@ -55,6 +63,10 @@ func (p *grouperProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 				Optional:            true,
 				Sensitive:           true,
 			},
+			"subject_source": schema.StringAttribute{
+				MarkdownDescription: "Subject source of the people in `grouper_group_members`, such as `ldap`. Defaults to `GROUPER_SUBJECT_SOURCE`, and when neither is set, Grouper searches every source for each person.",
+				Optional:            true,
+			},
 		},
 	}
 }
@@ -69,19 +81,31 @@ func (p *grouperProvider) Configure(ctx context.Context, req provider.ConfigureR
 	url := resolve(resp, "url", model.URL, "GROUPER_URL")
 	username := resolve(resp, "username", model.Username, "GROUPER_USERNAME")
 	password := resolve(resp, "password", model.Password, "GROUPER_PASSWORD")
+	if model.SubjectSource.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("subject_source"), "Unknown Grouper subject_source", "The provider can't add members until subject_source is known.")
+	}
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	client := grouper.NewClient(url, username, password)
-	resp.DataSourceData = client
-	resp.ResourceData = client
+	subjectSource := model.SubjectSource.ValueString()
+	if model.SubjectSource.IsNull() {
+		subjectSource = os.Getenv("GROUPER_SUBJECT_SOURCE")
+	}
+
+	data := &providerData{
+		client:        grouper.NewClient(url, username, password),
+		subjectSource: subjectSource,
+	}
+	resp.DataSourceData = data
+	resp.ResourceData = data
 }
 
 func (p *grouperProvider) Resources(context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewFolderResource,
 		NewGroupResource,
+		NewGroupMembersResource,
 	}
 }
 
@@ -110,15 +134,15 @@ func resolve(resp *provider.ConfigureResponse, name string, value types.String, 
 	return ""
 }
 
-// Client from the data the provider hands its resources and data sources, nil until the provider is configured
-func providerClient(data any, diags *diag.Diagnostics) *grouper.Client {
+// Provider data from a resource or data source's Configure request, nil until the provider is configured
+func configuredProvider(data any, diags *diag.Diagnostics) *providerData {
 	if data == nil {
 		return nil
 	}
 
-	client, ok := data.(*grouper.Client)
+	provider, ok := data.(*providerData)
 	if !ok {
-		diags.AddError("Unexpected provider data", fmt.Sprintf("Expected *grouper.Client, got %T.", data))
+		diags.AddError("Unexpected provider data", fmt.Sprintf("Expected *providerData, got %T.", data))
 	}
-	return client
+	return provider
 }

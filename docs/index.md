@@ -24,5 +24,6 @@ provider "grouper" {
 ### Optional
 
 - `password` (String, Sensitive) Password for basic auth. Defaults to `GROUPER_PASSWORD`.
+- `subject_source` (String) Subject source of the people in `grouper_group_members`, such as `ldap`. Defaults to `GROUPER_SUBJECT_SOURCE`, and when neither is set, Grouper searches every source for each person.
 - `url` (String) Grouper web services REST endpoint, such as `https://grouper.example.edu/grouper-ws/servicesRest/v2_6_000`. Defaults to `GROUPER_URL`.
 - `username` (String) Username for basic auth. Defaults to `GROUPER_USERNAME`.

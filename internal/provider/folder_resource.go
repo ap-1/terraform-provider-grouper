@@ -114,7 +114,9 @@ func defaultDisplayExtension(ctx context.Context, req resource.ModifyPlanRequest
 }
 
 func (r *folderResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	r.client = providerClient(req.ProviderData, &resp.Diagnostics)
+	if p := configuredProvider(req.ProviderData, &resp.Diagnostics); p != nil {
+		r.client = p.client
+	}
 }
 
 func (r *folderResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

@@ -62,7 +62,9 @@ func (d *folderDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 }
 
 func (d *folderDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	d.client = providerClient(req.ProviderData, &resp.Diagnostics)
+	if p := configuredProvider(req.ProviderData, &resp.Diagnostics); p != nil {
+		d.client = p.client
+	}
 }
 
 func (d *folderDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
