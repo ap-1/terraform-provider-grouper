@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: docker.io/library/postgres:18
+    environment:
+      POSTGRES_PASSWORD: grouper
+    healthcheck:
+      test: pg_isready -U postgres
+      interval: 2s
+      retries: 30
+
+  grouper:
+    image: docker.io/i2incommon/grouper:4.19.0
+    command: quickstart
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - 8080:8080
+    environment:
+      GROUPERSYSTEM_QUICKSTART_PASS: grouper
+      GROUPER_MORPHSTRING_ENCRYPT_KEY: grouper-test-key
+      GROUPER_DATABASE_URL: jdbc:postgresql://postgres:5432/postgres
+      GROUPER_DATABASE_USERNAME: postgres
+      GROUPER_DATABASE_PASSWORD: grouper
+      GROUPER_AUTO_DDL_UPTOVERSION: 4.*.*
+    healthcheck:
+      test: curl -sf -u GrouperSystem:grouper http://localhost:8080/grouper/servicesRest/v2_6_000/subjects/GrouperSystem
+      interval: 5s
+      start_period: 5m
+      retries: 3

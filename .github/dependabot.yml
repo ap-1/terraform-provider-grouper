@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directories:
+      - /
+      - /tools
+    schedule:
+      interval: weekly
+    groups:
+      terraform-plugin:
+        patterns:
+          - github.com/hashicorp/terraform-plugin-*
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
