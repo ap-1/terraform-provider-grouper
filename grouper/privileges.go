@@ -2,8 +2,10 @@ package grouper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // GroupPrivilegeNames are the privileges a subject can have on a group.
@@ -12,20 +14,42 @@ var GroupPrivilegeNames = []string{"admin", "read", "update", "view", "optin", "
 // StemPrivilegeNames are the privileges a subject can have on a folder.
 var StemPrivilegeNames = []string{"stemAdmin", "create", "stemView", "stemAttrRead", "stemAttrUpdate"}
 
+// Privilege each of Grouper's privilege lists grants, since Grouper stores grants as memberships
+// in these lists
+var privilegeLists = map[string]string{
+	"admins":            "admin",
+	"readers":           "read",
+	"updaters":          "update",
+	"viewers":           "view",
+	"optins":            "optin",
+	"optouts":           "optout",
+	"groupAttrReaders":  "groupAttrRead",
+	"groupAttrUpdaters": "groupAttrUpdate",
+	"stemAdmins":        "stemAdmin",
+	"creators":          "create",
+	"stemViewers":       "stemView",
+	"stemAttrReaders":   "stemAttrRead",
+	"stemAttrUpdaters":  "stemAttrUpdate",
+}
+
 // Group or folder whose privileges are read and set
 type privilegeTarget struct {
-	lookup map[string]string
+	uuid string
 	// access for groups, naming for folders
 	privilegeType string
 	names         []string
+	// Request field holding the UUID in the lite privilege calls
+	uuidField string
+	// Request field listing the target in getMemberships
+	membershipsField string
 }
 
 func groupTarget(uuid string) privilegeTarget {
-	return privilegeTarget{map[string]string{"groupUuid": uuid}, "access", GroupPrivilegeNames}
+	return privilegeTarget{uuid, "access", GroupPrivilegeNames, "groupUuid", "wsGroupLookups"}
 }
 
 func stemTarget(uuid string) privilegeTarget {
-	return privilegeTarget{map[string]string{"stemUuid": uuid}, "naming", StemPrivilegeNames}
+	return privilegeTarget{uuid, "naming", StemPrivilegeNames, "stemUuid", "wsOwnerStemLookups"}
 }
 
 // GroupPrivileges returns the privileges subject has directly on the group with the given UUID.
@@ -50,34 +74,39 @@ func (c *Client) SetStemPrivileges(ctx context.Context, uuid string, subject Sub
 	return c.setPrivileges(ctx, stemTarget(uuid), subject, privileges)
 }
 
+// Privileges granted to subject itself, not those it inherits through GrouperAll or a group. The
+// lite privileges call can't tell these apart, since it returns one effective grant per privilege.
+// A subject that doesn't exist has none.
 func (c *Client) privileges(ctx context.Context, target privilegeTarget, subject Subject) ([]string, error) {
-	req := map[string]string{
-		"subjectId":     subject.ID,
-		"privilegeType": target.privilegeType,
-	}
-	if subject.SourceID != "" {
-		req["subjectSourceId"] = subject.SourceID
-	}
-	for k, v := range target.lookup {
-		req[k] = v
+	req := map[string]any{
+		"WsRestGetMembershipsRequest": map[string]any{
+			target.membershipsField: []map[string]string{{"uuid": target.uuid}},
+			"fieldType":             target.privilegeType,
+			"memberFilter":          "Immediate",
+			"wsSubjectLookups":      []Subject{subject},
+		},
 	}
 
 	var resp struct {
-		WsGetGrouperPrivilegesLiteResult struct {
-			PrivilegeResults []struct {
-				PrivilegeName string `json:"privilegeName"`
-				Allowed       string `json:"allowed"`
-			} `json:"privilegeResults"`
-		} `json:"WsGetGrouperPrivilegesLiteResult"`
+		WsGetMembershipsResults struct {
+			WsMemberships []struct {
+				ListName string `json:"listName"`
+			} `json:"wsMemberships"`
+		} `json:"WsGetMembershipsResults"`
 	}
-	if err := c.post(ctx, "grouperPrivileges", map[string]any{"WsRestGetGrouperPrivilegesLiteRequest": req}, &resp); err != nil {
+	if err := c.post(ctx, "memberships", req, &resp); err != nil {
+		// Grouper reports a missing folder here as a generic EXCEPTION
+		var e *Error
+		if errors.As(err, &e) && strings.HasPrefix(e.Message, "Could not find stem") {
+			e.Code = "STEM_NOT_FOUND"
+		}
 		return nil, err
 	}
 
 	var names []string
-	for _, p := range resp.WsGetGrouperPrivilegesLiteResult.PrivilegeResults {
-		if p.Allowed == "T" {
-			names = append(names, p.PrivilegeName)
+	for _, m := range resp.WsGetMembershipsResults.WsMemberships {
+		if name, ok := privilegeLists[m.ListName]; ok {
+			names = append(names, name)
 		}
 	}
 	return names, nil
@@ -125,9 +154,7 @@ func (c *Client) assignPrivilege(ctx context.Context, target privilegeTarget, su
 	if subject.SourceID != "" {
 		req["subjectSourceId"] = subject.SourceID
 	}
-	for k, v := range target.lookup {
-		req[k] = v
-	}
+	req[target.uuidField] = target.uuid
 
 	return c.post(ctx, "grouperPrivileges", map[string]any{"WsRestAssignGrouperPrivilegesLiteRequest": req}, &struct{}{})
 }
