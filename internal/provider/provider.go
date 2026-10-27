@@ -2,8 +2,10 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/ap-1/terraform-provider-grouper/grouper"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -106,6 +108,8 @@ func (p *grouperProvider) Resources(context.Context) []func() resource.Resource 
 		NewFolderResource,
 		NewGroupResource,
 		NewGroupMembersResource,
+		NewGroupPrivilegesResource,
+		NewFolderPrivilegesResource,
 	}
 }
 
@@ -113,6 +117,12 @@ func (p *grouperProvider) DataSources(context.Context) []func() datasource.DataS
 	return []func() datasource.DataSource{
 		NewFolderDataSource,
 	}
+}
+
+// Whether err is a Grouper error with one of codes, such as GROUP_NOT_FOUND
+func hasErrorCode(err error, codes ...string) bool {
+	var grouperErr *grouper.Error
+	return errors.As(err, &grouperErr) && slices.Contains(codes, grouperErr.Code)
 }
 
 // Attribute value, or its environment variable when the attribute is unset

@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/ap-1/terraform-provider-grouper/grouper"
@@ -99,7 +98,7 @@ func (r *groupMembersResource) Read(ctx context.Context, req resource.ReadReques
 	members, err := r.provider.client.GroupMembers(ctx, state.Group.ValueString())
 
 	// The group was deleted, taking its members with it
-	if isGroupNotFound(err) {
+	if hasErrorCode(err, "GROUP_NOT_FOUND") {
 		resp.State.RemoveResource(ctx)
 		return
 	}
@@ -145,7 +144,7 @@ func (r *groupMembersResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 
 	err := r.provider.client.SetGroupMembers(ctx, state.Group.ValueString(), nil)
-	if err != nil && !isGroupNotFound(err) {
+	if err != nil && !hasErrorCode(err, "GROUP_NOT_FOUND") {
 		resp.Diagnostics.AddError("Unable to remove group members", err.Error())
 	}
 }
@@ -188,11 +187,6 @@ func (r *groupMembersResource) set(ctx context.Context, plan *groupMembersResour
 	if err := r.provider.client.SetGroupMembers(ctx, plan.Group.ValueString(), members); err != nil {
 		addError("Unable to set group members", err.Error())
 	}
-}
-
-func isGroupNotFound(err error) bool {
-	var grouperErr *grouper.Error
-	return errors.As(err, &grouperErr) && grouperErr.Code == "GROUP_NOT_FOUND"
 }
 
 func stringSet(values []string) types.Set {
