@@ -216,13 +216,17 @@ func (m *groupResourceModel) set(group *grouper.Group) {
 	m.Name = types.StringValue(group.Name)
 	m.DisplayExtension = types.StringValue(group.DisplayExtension)
 	m.Description = types.StringValue(group.Description)
+	m.Composite = compositeFrom(group.Composite)
+}
 
-	m.Composite = nil
-	if c := group.Composite; c != nil {
-		m.Composite = &compositeModel{
-			Type:       types.StringValue(c.Type),
-			LeftGroup:  types.StringValue(c.LeftUUID),
-			RightGroup: types.StringValue(c.RightUUID),
-		}
+// Nil for an ordinary group
+func compositeFrom(c *grouper.Composite) *compositeModel {
+	if c == nil {
+		return nil
+	}
+	return &compositeModel{
+		Type:       types.StringValue(c.Type),
+		LeftGroup:  types.StringValue(c.LeftUUID),
+		RightGroup: types.StringValue(c.RightUUID),
 	}
 }

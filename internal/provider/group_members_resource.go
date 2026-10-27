@@ -109,7 +109,7 @@ func (r *groupMembersResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
-	members, err := r.client.GroupMembers(ctx, state.Group.ValueString())
+	members, err := r.client.GroupMembers(ctx, state.Group.ValueString(), grouper.ImmediateMembers)
 
 	// The group was deleted, taking its members with it
 	if hasErrorCode(err, "GROUP_NOT_FOUND") {
@@ -121,20 +121,7 @@ func (r *groupMembersResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
-	subjects := map[string][]string{}
-	var groups []string
-	for _, member := range members {
-		if member.SourceID == grouper.GroupSource {
-			groups = append(groups, member.ID)
-		} else {
-			subjects[member.SourceID] = append(subjects[member.SourceID], member.ID)
-		}
-	}
-
-	subjectsValue, diags := types.MapValueFrom(ctx, subjectsType, subjects)
-	resp.Diagnostics.Append(diags...)
-	state.Subjects = subjectsValue
-	state.Groups = stringSet(groups)
+	state.Subjects, state.Groups = splitMembers(members)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -215,6 +202,25 @@ func stringSet(values []string) types.Set {
 		elements[i] = types.StringValue(v)
 	}
 	return types.SetValueMust(types.StringType, elements)
+}
+
+// Members as subjects keyed by source, and the UUIDs of member groups
+func splitMembers(members []grouper.Subject) (subjects types.Map, groups types.Set) {
+	bySource := map[string][]string{}
+	var groupIDs []string
+	for _, member := range members {
+		if member.SourceID == grouper.GroupSource {
+			groupIDs = append(groupIDs, member.ID)
+		} else {
+			bySource[member.SourceID] = append(bySource[member.SourceID], member.ID)
+		}
+	}
+
+	elements := make(map[string]attr.Value, len(bySource))
+	for source, ids := range bySource {
+		elements[source] = stringSet(ids)
+	}
+	return types.MapValueMust(subjectsType, elements), stringSet(groupIDs)
 }
 
 // Element type of subjects, a set of subject IDs

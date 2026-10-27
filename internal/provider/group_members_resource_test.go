@@ -167,7 +167,7 @@ func testAccAddMember(t *testing.T, groupName, subjectID, source string) {
 	if err != nil || group == nil {
 		t.Fatalf("finding %s: %v", groupName, err)
 	}
-	members, err := client.GroupMembers(ctx, group.UUID)
+	members, err := client.GroupMembers(ctx, group.UUID, grouper.ImmediateMembers)
 	if err != nil {
 		t.Fatal(err)
 	}

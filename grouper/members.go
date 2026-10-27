@@ -16,13 +16,22 @@ type Subject struct {
 	SourceID string `json:"subjectSourceId,omitempty"`
 }
 
-// GroupMembers returns the immediate members of the group with the given UUID, not those it has
-// only through nested groups.
-func (c *Client) GroupMembers(ctx context.Context, uuid string) ([]Subject, error) {
+// MemberFilter chooses which of a group's members GroupMembers returns.
+type MemberFilter string
+
+const (
+	// ImmediateMembers are the subjects and groups added to the group directly.
+	ImmediateMembers MemberFilter = "Immediate"
+	// AllMembers are the immediate members plus everyone in nested groups, at any depth.
+	AllMembers MemberFilter = "All"
+)
+
+// GroupMembers returns the members of the group with the given UUID that filter selects.
+func (c *Client) GroupMembers(ctx context.Context, uuid string, filter MemberFilter) ([]Subject, error) {
 	req := map[string]any{
 		"WsRestGetMembersRequest": map[string]any{
 			"wsGroupLookups": []map[string]string{{"uuid": uuid}},
-			"memberFilter":   "Immediate",
+			"memberFilter":   filter,
 		},
 	}
 

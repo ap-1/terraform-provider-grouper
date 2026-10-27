@@ -93,6 +93,9 @@ func (p *grouperProvider) Resources(context.Context) []func() resource.Resource 
 func (p *grouperProvider) DataSources(context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewFolderDataSource,
+		NewGroupDataSource,
+		NewGroupMembersDataSource,
+		NewSubjectDataSource,
 	}
 }
 
