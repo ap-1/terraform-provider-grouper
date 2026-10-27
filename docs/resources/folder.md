@@ -43,6 +43,6 @@ Import is supported using the following syntax:
 The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
 
 ```shell
-# Folders are imported by full name
+# Import by the folder's current full name. Grouper keeps a renamed folder's old names as aliases, but they don't match here.
 tofu import grouper_folder.apps org:dept:apps
 ```

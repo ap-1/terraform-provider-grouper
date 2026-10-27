@@ -17,12 +17,17 @@ type Stem struct {
 	UUID        string `json:"uuid,omitempty"`
 }
 
-// FindStem returns the folder with the given full name, or nil when there is none.
+// FindStem returns the folder whose current full name is name, or nil when there is none.
+// Grouper also matches a folder's former names after a rename, but FindStem doesn't.
 func (c *Client) FindStem(ctx context.Context, name string) (*Stem, error) {
-	return c.findStem(ctx, map[string]string{
+	stem, err := c.findStem(ctx, map[string]string{
 		"stemName":            name,
 		"stemQueryFilterType": "FIND_BY_STEM_NAME",
 	})
+	if err != nil || stem == nil || stem.Name != name {
+		return nil, err
+	}
+	return stem, nil
 }
 
 // FindStemByUUID returns the folder with the given UUID, or nil when there is none.

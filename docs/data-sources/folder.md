@@ -23,7 +23,7 @@ data "grouper_folder" "apps" {
 
 ### Required
 
-- `name` (String) Full name of the folder, with segments separated by colons, such as `org:dept:apps`.
+- `name` (String) Current full name of the folder, with segments separated by colons, such as `org:dept:apps`. Grouper keeps a renamed folder's old names as aliases, but they don't match here.
 
 ### Read-Only
 

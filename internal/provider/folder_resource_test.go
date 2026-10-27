@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"testing"
 
 	"github.com/ap-1/terraform-provider-grouper/grouper"
@@ -50,6 +51,15 @@ func TestAccFolderResource(t *testing.T) {
 					sameID.AddStateValue("grouper_folder.child", tfjsonpath.New("id")),
 					newID.AddStateValue("grouper_folder.child", tfjsonpath.New("id")),
 				},
+			},
+			{
+				// Grouper keeps the old name as an alias, which lookups must not follow
+				Config: testAccFolderConfig(root, "${grouper_folder.root.name}:b", `display_extension = "B"`) + fmt.Sprintf(`
+data "grouper_folder" "old_name" {
+  name = "%s:a"
+}
+`, root),
+				ExpectError: regexp.MustCompile(`Folder not found`),
 			},
 			{
 				// Moving to another parent replaces the folder

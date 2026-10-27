@@ -38,7 +38,7 @@ func (d *folderDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 		MarkdownDescription: "Looks up a Grouper folder by its full name.",
 		Attributes: map[string]schema.Attribute{
 			"name": schema.StringAttribute{
-				MarkdownDescription: "Full name of the folder, with segments separated by colons, such as `org:dept:apps`.",
+				MarkdownDescription: "Current full name of the folder, with segments separated by colons, such as `org:dept:apps`. Grouper keeps a renamed folder's old names as aliases, but they don't match here.",
 				Required:            true,
 			},
 			"id": schema.StringAttribute{
