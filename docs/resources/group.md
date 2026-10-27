@@ -29,12 +29,22 @@ resource "grouper_group" "admins" {
 
 ### Optional
 
+- `composite` (Attributes) Makes the group's members the combination of two other groups' members, which Grouper keeps up to date in the background. A composite group can't have members of its own, so don't use `grouper_group_members` with it, and a group that has members can't become composite. (see [below for nested schema](#nestedatt--composite))
 - `description` (String) Description of the group.
 - `display_extension` (String) Display name of the group itself, shown in the Grouper UI. Defaults to the last segment of `name`.
 
 ### Read-Only
 
 - `id` (String) UUID of the group.
+
+<a id="nestedatt--composite"></a>
+### Nested Schema for `composite`
+
+Required:
+
+- `left_group` (String) UUID of the first group.
+- `right_group` (String) UUID of the second group.
+- `type` (String) `union` for members of either group, `intersection` for members of both, or `complement` for members of `left_group` who aren't in `right_group`.
 
 ## Import
 

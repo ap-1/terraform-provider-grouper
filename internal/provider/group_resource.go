@@ -5,12 +5,14 @@ import (
 	"fmt"
 
 	"github.com/ap-1/terraform-provider-grouper/grouper"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -25,10 +27,17 @@ type groupResource struct {
 }
 
 type groupResourceModel struct {
-	ID               types.String `tfsdk:"id"`
-	Name             types.String `tfsdk:"name"`
-	DisplayExtension types.String `tfsdk:"display_extension"`
-	Description      types.String `tfsdk:"description"`
+	ID               types.String    `tfsdk:"id"`
+	Name             types.String    `tfsdk:"name"`
+	DisplayExtension types.String    `tfsdk:"display_extension"`
+	Description      types.String    `tfsdk:"description"`
+	Composite        *compositeModel `tfsdk:"composite"`
+}
+
+type compositeModel struct {
+	Type       types.String `tfsdk:"type"`
+	LeftGroup  types.String `tfsdk:"left_group"`
+	RightGroup types.String `tfsdk:"right_group"`
 }
 
 func NewGroupResource() resource.Resource {
@@ -67,6 +76,27 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				Optional:            true,
 				Computed:            true,
 				Default:             stringdefault.StaticString(""),
+			},
+			"composite": schema.SingleNestedAttribute{
+				MarkdownDescription: "Makes the group's members the combination of two other groups' members, which Grouper keeps up to date in the background. A composite group can't have members of its own, so don't use `grouper_group_members` with it, and a group that has members can't become composite.",
+				Optional:            true,
+				Attributes: map[string]schema.Attribute{
+					"type": schema.StringAttribute{
+						MarkdownDescription: "`union` for members of either group, `intersection` for members of both, or `complement` for members of `left_group` who aren't in `right_group`.",
+						Required:            true,
+						Validators: []validator.String{
+							stringvalidator.OneOf("union", "intersection", "complement"),
+						},
+					},
+					"left_group": schema.StringAttribute{
+						MarkdownDescription: "UUID of the first group.",
+						Required:            true,
+					},
+					"right_group": schema.StringAttribute{
+						MarkdownDescription: "UUID of the second group.",
+						Required:            true,
+					},
+				},
 			},
 		},
 	}
@@ -168,11 +198,19 @@ func (r *groupResource) ImportState(ctx context.Context, req resource.ImportStat
 }
 
 func (m *groupResourceModel) group() grouper.Group {
-	return grouper.Group{
+	group := grouper.Group{
 		Name:             m.Name.ValueString(),
 		DisplayExtension: m.DisplayExtension.ValueString(),
 		Description:      m.Description.ValueString(),
 	}
+	if c := m.Composite; c != nil {
+		group.Composite = &grouper.Composite{
+			Type:      c.Type.ValueString(),
+			LeftUUID:  c.LeftGroup.ValueString(),
+			RightUUID: c.RightGroup.ValueString(),
+		}
+	}
+	return group
 }
 
 func (m *groupResourceModel) set(group *grouper.Group) {
@@ -180,4 +218,13 @@ func (m *groupResourceModel) set(group *grouper.Group) {
 	m.Name = types.StringValue(group.Name)
 	m.DisplayExtension = types.StringValue(group.DisplayExtension)
 	m.Description = types.StringValue(group.Description)
+
+	m.Composite = nil
+	if c := group.Composite; c != nil {
+		m.Composite = &compositeModel{
+			Type:       types.StringValue(c.Type),
+			LeftGroup:  types.StringValue(c.LeftUUID),
+			RightGroup: types.StringValue(c.RightUUID),
+		}
+	}
 }
