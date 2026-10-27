@@ -49,6 +49,8 @@ func (e *Error) Error() string {
 type resultMetadata struct {
 	ResultCode    string `json:"resultCode"`
 	ResultMessage string `json:"resultMessage"`
+	// T or F
+	Success string `json:"success"`
 }
 
 // Posts in to a web services path and decodes a successful response into out
@@ -86,7 +88,7 @@ func (c *Client) post(ctx context.Context, path string, in, out any) error {
 	}
 }
 
-// Error from a failed response, preferring the first item's resultMetadata over the request's
+// Error from a failed response, preferring the first failed item's resultMetadata over the request's
 func grouperError(status int, data []byte) error {
 	var wrapper map[string]struct {
 		ResultMetadata resultMetadata `json:"resultMetadata"`
@@ -100,8 +102,11 @@ func grouperError(status int, data []byte) error {
 
 	for _, results := range wrapper {
 		meta := results.ResultMetadata
-		if len(results.Results) > 0 && results.Results[0].ResultMetadata.ResultCode != "" {
-			meta = results.Results[0].ResultMetadata
+		for _, result := range results.Results {
+			if result.ResultMetadata.Success == "F" {
+				meta = result.ResultMetadata
+				break
+			}
 		}
 		return &Error{Status: status, Code: meta.ResultCode, Message: exceptionMessage(meta.ResultMessage)}
 	}
