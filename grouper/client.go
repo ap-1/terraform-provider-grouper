@@ -86,10 +86,13 @@ func (c *Client) post(ctx context.Context, path string, in, out any) error {
 	}
 }
 
-// Error from a failed response's resultMetadata, which sits inside a single wrapper object
+// Error from a failed response, preferring the first item's resultMetadata over the request's
 func grouperError(status int, data []byte) error {
 	var wrapper map[string]struct {
 		ResultMetadata resultMetadata `json:"resultMetadata"`
+		Results        []struct {
+			ResultMetadata resultMetadata `json:"resultMetadata"`
+		} `json:"results"`
 	}
 	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return &Error{Status: status, Message: string(data)}
@@ -97,12 +100,15 @@ func grouperError(status int, data []byte) error {
 
 	for _, results := range wrapper {
 		meta := results.ResultMetadata
+		if len(results.Results) > 0 && results.Results[0].ResultMetadata.ResultCode != "" {
+			meta = results.Results[0].ResultMetadata
+		}
 		return &Error{Status: status, Code: meta.ResultCode, Message: exceptionMessage(meta.ResultMessage)}
 	}
 	return &Error{Status: status, Message: string(data)}
 }
 
-// The exception from a resultMessage, without the request dump before it or the stack trace after it
+// The exception from a resultMessage, without the request dump before it or anything after its first line
 func exceptionMessage(message string) string {
 	message, _, _ = strings.Cut(message, "\n\tat ")
 	for _, marker := range []string{"Exception: ", "InvalidRequest: "} {
@@ -111,5 +117,6 @@ func exceptionMessage(message string) string {
 			break
 		}
 	}
-	return strings.TrimRight(message, ", \n")
+	message, _, _ = strings.Cut(message, "\n")
+	return strings.TrimRight(message, ", ")
 }
