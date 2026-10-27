@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/ap-1/terraform-provider-grouper/grouper"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -22,13 +23,6 @@ type grouperProviderModel struct {
 	URL      types.String `tfsdk:"url"`
 	Username types.String `tfsdk:"username"`
 	Password types.String `tfsdk:"password"`
-}
-
-// Connection settings resolved from the provider block and environment
-type config struct {
-	URL      string
-	Username string
-	Password string
 }
 
 func New(version string) func() provider.Provider {
@@ -70,17 +64,16 @@ func (p *grouperProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
-	cfg := config{
-		URL:      resolve(resp, "url", model.URL, "GROUPER_URL"),
-		Username: resolve(resp, "username", model.Username, "GROUPER_USERNAME"),
-		Password: resolve(resp, "password", model.Password, "GROUPER_PASSWORD"),
-	}
+	url := resolve(resp, "url", model.URL, "GROUPER_URL")
+	username := resolve(resp, "username", model.Username, "GROUPER_USERNAME")
+	password := resolve(resp, "password", model.Password, "GROUPER_PASSWORD")
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	resp.DataSourceData = cfg
-	resp.ResourceData = cfg
+	client := grouper.NewClient(url, username, password)
+	resp.DataSourceData = client
+	resp.ResourceData = client
 }
 
 func (p *grouperProvider) Resources(context.Context) []func() resource.Resource {
@@ -88,7 +81,9 @@ func (p *grouperProvider) Resources(context.Context) []func() resource.Resource 
 }
 
 func (p *grouperProvider) DataSources(context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		NewFolderDataSource,
+	}
 }
 
 // Attribute value, or its environment variable when the attribute is unset
