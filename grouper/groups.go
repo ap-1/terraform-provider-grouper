@@ -15,6 +15,56 @@ type Group struct {
 	DisplayName string `json:"displayName,omitempty"`
 	Description string `json:"description"`
 	UUID        string `json:"uuid,omitempty"`
+	// Set when the group's members come from combining two other groups, which also means it can't
+	// have members of its own
+	Composite *Composite `json:"-"`
+}
+
+// Composite combines two groups' members into a third group's.
+type Composite struct {
+	// union, intersection, or complement, which is Left's members who aren't in Right
+	Type      string
+	LeftUUID  string
+	RightUUID string
+}
+
+// Group in the shape Grouper's web services send and receive
+type wsGroup struct {
+	Group
+	Detail *wsGroupDetail `json:"detail,omitempty"`
+}
+
+type wsGroupDetail struct {
+	// T or F
+	HasComposite  string         `json:"hasComposite"`
+	CompositeType string         `json:"compositeType,omitempty"`
+	LeftGroup     *wsGroupLookup `json:"leftGroup,omitempty"`
+	RightGroup    *wsGroupLookup `json:"rightGroup,omitempty"`
+}
+
+type wsGroupLookup struct {
+	UUID string `json:"uuid"`
+}
+
+func toWSGroup(group Group) wsGroup {
+	ws := wsGroup{Group: group, Detail: &wsGroupDetail{HasComposite: "F"}}
+	if c := group.Composite; c != nil {
+		ws.Detail = &wsGroupDetail{
+			HasComposite:  "T",
+			CompositeType: c.Type,
+			LeftGroup:     &wsGroupLookup{UUID: c.LeftUUID},
+			RightGroup:    &wsGroupLookup{UUID: c.RightUUID},
+		}
+	}
+	return ws
+}
+
+func (ws wsGroup) group() *Group {
+	group := ws.Group
+	if d := ws.Detail; d != nil && d.HasComposite == "T" && d.LeftGroup != nil && d.RightGroup != nil {
+		group.Composite = &Composite{Type: d.CompositeType, LeftUUID: d.LeftGroup.UUID, RightUUID: d.RightGroup.UUID}
+	}
+	return &group
 }
 
 // FindGroup returns the group whose current full name is name, or nil when there is none.
@@ -35,13 +85,14 @@ func (c *Client) FindGroupByUUID(ctx context.Context, uuid string) (*Group, erro
 func (c *Client) findGroup(ctx context.Context, lookup map[string]string) (*Group, error) {
 	req := map[string]any{
 		"WsRestFindGroupsRequest": map[string]any{
-			"wsGroupLookups": []map[string]string{lookup},
+			"wsGroupLookups":     []map[string]string{lookup},
+			"includeGroupDetail": "T",
 		},
 	}
 
 	var resp struct {
 		WsFindGroupsResults struct {
-			GroupResults []Group `json:"groupResults"`
+			GroupResults []wsGroup `json:"groupResults"`
 		} `json:"WsFindGroupsResults"`
 	}
 	if err := c.post(ctx, "groups", req, &resp); err != nil {
@@ -52,16 +103,18 @@ func (c *Client) findGroup(ctx context.Context, lookup map[string]string) (*Grou
 	if len(groups) == 0 {
 		return nil, nil
 	}
-	return &groups[0], nil
+	return groups[0].group(), nil
 }
 
 // CreateGroup creates a group, failing if one with the same name exists or its folder doesn't.
+// A composite group's operand groups must already exist.
 func (c *Client) CreateGroup(ctx context.Context, group Group) (*Group, error) {
 	return c.saveGroup(ctx, map[string]string{"groupName": group.Name}, group, "INSERT")
 }
 
-// UpdateGroup changes the group with the given UUID, renaming it if group.Name differs.
-// Grouper can't move a group to another folder.
+// UpdateGroup changes the group with the given UUID, renaming it if group.Name differs, and
+// making it composite or not to match group.Composite. Grouper can't move a group to another
+// folder, or make a group with members composite.
 func (c *Client) UpdateGroup(ctx context.Context, uuid string, group Group) (*Group, error) {
 	return c.saveGroup(ctx, map[string]string{"uuid": uuid}, group, "UPDATE")
 }
@@ -73,16 +126,17 @@ func (c *Client) saveGroup(ctx context.Context, lookup map[string]string, group 
 		"WsRestGroupSaveRequest": map[string]any{
 			"wsGroupToSaves": []map[string]any{{
 				"wsGroupLookup": lookup,
-				"wsGroup":       group,
+				"wsGroup":       toWSGroup(group),
 				"saveMode":      saveMode,
 			}},
+			"includeGroupDetail": "T",
 		},
 	}
 
 	var resp struct {
 		WsGroupSaveResults struct {
 			Results []struct {
-				WsGroup Group `json:"wsGroup"`
+				WsGroup wsGroup `json:"wsGroup"`
 			} `json:"results"`
 		} `json:"WsGroupSaveResults"`
 	}
@@ -94,7 +148,7 @@ func (c *Client) saveGroup(ctx context.Context, lookup map[string]string, group 
 	if len(results) == 0 {
 		return nil, &Error{Status: http.StatusOK, Message: "group save returned no results"}
 	}
-	return &results[0].WsGroup, nil
+	return results[0].WsGroup.group(), nil
 }
 
 // DeleteGroup deletes the group with the given UUID, succeeding if it doesn't exist.
