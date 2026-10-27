@@ -1,6 +1,6 @@
 # Grouper Provider
 
-An OpenTofu and Terraform provider for [Internet2 Grouper](https://www.internet2.edu/products-services/trust-identity/grouper/) that manages folders, groups, memberships, and privileges through Grouper Web Services.
+An OpenTofu provider for [Internet2 Grouper](https://www.internet2.edu/products-services/trust-identity/grouper/) that manages folders, groups, memberships, and privileges through Grouper Web Services.
 
 ```hcl
 terraform {
