@@ -95,6 +95,7 @@ func (p *grouperProvider) DataSources(context.Context) []func() datasource.DataS
 		NewFolderDataSource,
 		NewGroupDataSource,
 		NewGroupMembersDataSource,
+		NewGroupsDataSource,
 		NewSubjectDataSource,
 	}
 }

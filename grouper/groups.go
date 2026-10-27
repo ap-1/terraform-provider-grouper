@@ -3,6 +3,7 @@ package grouper
 import (
 	"context"
 	"net/http"
+	"strconv"
 )
 
 // Group is a Grouper group.
@@ -82,28 +83,67 @@ func (c *Client) FindGroupByUUID(ctx context.Context, uuid string) (*Group, erro
 	return c.findGroup(ctx, map[string]string{"uuid": uuid})
 }
 
-func (c *Client) findGroup(ctx context.Context, lookup map[string]string) (*Group, error) {
-	req := map[string]any{
-		"WsRestFindGroupsRequest": map[string]any{
-			"wsGroupLookups":     []map[string]string{lookup},
-			"includeGroupDetail": "T",
-		},
+// Groups fetched per request by ListGroups
+const listPageSize = 100
+
+// ListGroups returns the ordinary groups directly in the folder named folder, sorted by name, or
+// also those in its subfolders at any depth when recursive is set. A folder that doesn't exist
+// has none.
+func (c *Client) ListGroups(ctx context.Context, folder string, recursive bool) ([]Group, error) {
+	scope := "ONE_LEVEL"
+	if recursive {
+		scope = "ALL_IN_SUBTREE"
 	}
+
+	var groups []Group
+	// Stops at an empty page, since a short one might only mean Grouper capped the page size
+	for page := 1; ; page++ {
+		results, err := c.findGroups(ctx, map[string]any{
+			"wsQueryFilter": map[string]string{
+				"queryFilterType": "FIND_BY_STEM_NAME",
+				"stemName":        folder,
+				"stemNameScope":   scope,
+				"typeOfGroups":    "group",
+				"sortString":      "name",
+				"ascending":       "T",
+				"pageSize":        strconv.Itoa(listPageSize),
+				"pageNumber":      strconv.Itoa(page),
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(results) == 0 {
+			return groups, nil
+		}
+
+		for _, ws := range results {
+			groups = append(groups, *ws.group())
+		}
+	}
+}
+
+func (c *Client) findGroup(ctx context.Context, lookup map[string]string) (*Group, error) {
+	groups, err := c.findGroups(ctx, map[string]any{"wsGroupLookups": []map[string]string{lookup}})
+	if err != nil || len(groups) == 0 {
+		return nil, err
+	}
+	return groups[0].group(), nil
+}
+
+// Groups matching a find request's lookups or query filter, with their composite settings
+func (c *Client) findGroups(ctx context.Context, request map[string]any) ([]wsGroup, error) {
+	request["includeGroupDetail"] = "T"
 
 	var resp struct {
 		WsFindGroupsResults struct {
 			GroupResults []wsGroup `json:"groupResults"`
 		} `json:"WsFindGroupsResults"`
 	}
-	if err := c.post(ctx, "groups", req, &resp); err != nil {
+	if err := c.post(ctx, "groups", map[string]any{"WsRestFindGroupsRequest": request}, &resp); err != nil {
 		return nil, err
 	}
-
-	groups := resp.WsFindGroupsResults.GroupResults
-	if len(groups) == 0 {
-		return nil, nil
-	}
-	return groups[0].group(), nil
+	return resp.WsFindGroupsResults.GroupResults, nil
 }
 
 // CreateGroup creates a group, failing if one with the same name exists or its folder doesn't.

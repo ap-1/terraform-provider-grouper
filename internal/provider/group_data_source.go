@@ -58,23 +58,28 @@ func (d *groupDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, 
 				MarkdownDescription: "Description of the group.",
 				Computed:            true,
 			},
-			"composite": schema.SingleNestedAttribute{
-				MarkdownDescription: "Set when the group's members are the combination of two other groups' members.",
+			"composite": compositeDataSourceAttribute(),
+		},
+	}
+}
+
+// Read-only composite settings, shared by the group data sources
+func compositeDataSourceAttribute() schema.SingleNestedAttribute {
+	return schema.SingleNestedAttribute{
+		MarkdownDescription: "Set when the group's members are the combination of two other groups' members.",
+		Computed:            true,
+		Attributes: map[string]schema.Attribute{
+			"type": schema.StringAttribute{
+				MarkdownDescription: "`union`, `intersection`, or `complement`, which is members of `left_group` who aren't in `right_group`.",
 				Computed:            true,
-				Attributes: map[string]schema.Attribute{
-					"type": schema.StringAttribute{
-						MarkdownDescription: "`union`, `intersection`, or `complement`, which is members of `left_group` who aren't in `right_group`.",
-						Computed:            true,
-					},
-					"left_group": schema.StringAttribute{
-						MarkdownDescription: "UUID of the first group.",
-						Computed:            true,
-					},
-					"right_group": schema.StringAttribute{
-						MarkdownDescription: "UUID of the second group.",
-						Computed:            true,
-					},
-				},
+			},
+			"left_group": schema.StringAttribute{
+				MarkdownDescription: "UUID of the first group.",
+				Computed:            true,
+			},
+			"right_group": schema.StringAttribute{
+				MarkdownDescription: "UUID of the second group.",
+				Computed:            true,
 			},
 		},
 	}
