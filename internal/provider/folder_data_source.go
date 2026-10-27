@@ -62,17 +62,7 @@ func (d *folderDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 }
 
 func (d *folderDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	// Unset until the provider is configured
-	if req.ProviderData == nil {
-		return
-	}
-
-	client, ok := req.ProviderData.(*grouper.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data", fmt.Sprintf("Expected *grouper.Client, got %T.", req.ProviderData))
-		return
-	}
-	d.client = client
+	d.client = providerClient(req.ProviderData, &resp.Diagnostics)
 }
 
 func (d *folderDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {

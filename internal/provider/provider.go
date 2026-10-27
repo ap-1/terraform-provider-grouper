@@ -2,10 +2,12 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/ap-1/terraform-provider-grouper/grouper"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -77,7 +79,9 @@ func (p *grouperProvider) Configure(ctx context.Context, req provider.ConfigureR
 }
 
 func (p *grouperProvider) Resources(context.Context) []func() resource.Resource {
-	return nil
+	return []func() resource.Resource{
+		NewFolderResource,
+	}
 }
 
 func (p *grouperProvider) DataSources(context.Context) []func() datasource.DataSource {
@@ -103,4 +107,17 @@ func resolve(resp *provider.ConfigureResponse, name string, value types.String, 
 
 	resp.Diagnostics.AddAttributeError(path.Root(name), "Missing Grouper "+name, "Set "+name+" in the provider block or "+env+" in the environment.")
 	return ""
+}
+
+// Client from the data the provider hands its resources and data sources, nil until the provider is configured
+func providerClient(data any, diags *diag.Diagnostics) *grouper.Client {
+	if data == nil {
+		return nil
+	}
+
+	client, ok := data.(*grouper.Client)
+	if !ok {
+		diags.AddError("Unexpected provider data", fmt.Sprintf("Expected *grouper.Client, got %T.", data))
+	}
+	return client
 }
