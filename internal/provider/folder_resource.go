@@ -73,7 +73,7 @@ func (r *folderResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 	}
 }
 
-// Whether a name change moves the folder to another parent
+// Whether a name change moves the folder or group to another parent folder
 func parentChanged(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
 	resp.RequiresReplace = parent(req.StateValue.ValueString()) != parent(req.PlanValue.ValueString())
 }
@@ -91,21 +91,25 @@ func lastSegment(name string) string {
 }
 
 func (r *folderResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	defaultDisplayExtension(ctx, req, resp)
+}
+
+// Plans display_extension as the last segment of name when it isn't configured
+func defaultDisplayExtension(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	// Nothing to plan when destroying
 	if req.Plan.Raw.IsNull() {
 		return
 	}
 
-	var config, plan folderResourceModel
-	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	var configured, name types.String
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("display_extension"), &configured)...)
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("name"), &name)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if config.DisplayExtension.IsNull() && !plan.Name.IsUnknown() {
-		plan.DisplayExtension = types.StringValue(lastSegment(plan.Name.ValueString()))
-		resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+	if configured.IsNull() && !name.IsUnknown() {
+		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("display_extension"), lastSegment(name.ValueString()))...)
 	}
 }
 
@@ -191,7 +195,7 @@ func (r *folderResource) ImportState(ctx context.Context, req resource.ImportSta
 		return
 	}
 	if stem == nil {
-		resp.Diagnostics.AddError("Folder not found", fmt.Sprintf("No folder is named %q.", req.ID))
+		resp.Diagnostics.AddError("Folder not found", fmt.Sprintf("No folder is currently named %q.", req.ID))
 		return
 	}
 

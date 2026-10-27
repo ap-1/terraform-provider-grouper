@@ -78,7 +78,7 @@ func (d *folderDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 	if stem == nil {
-		resp.Diagnostics.AddAttributeError(path.Root("name"), "Folder not found", fmt.Sprintf("No folder is named %q.", model.Name.ValueString()))
+		resp.Diagnostics.AddAttributeError(path.Root("name"), "Folder not found", fmt.Sprintf("No folder is currently named %q.", model.Name.ValueString()))
 		return
 	}
 

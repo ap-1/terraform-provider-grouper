@@ -81,6 +81,7 @@ func (p *grouperProvider) Configure(ctx context.Context, req provider.ConfigureR
 func (p *grouperProvider) Resources(context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewFolderResource,
+		NewGroupResource,
 	}
 }
 
