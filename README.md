@@ -24,10 +24,13 @@ go install
 
 ## Developing
 
-| Command         | Does                                                                   |
-| --------------- | ---------------------------------------------------------------------- |
-| `make build`    | builds the provider                                                    |
-| `make lint`     | runs golangci-lint                                                     |
-| `make generate` | regenerates `docs/` from the schemas and `examples/`                   |
-| `make test`     | runs unit tests                                                        |
-| `make testacc`  | runs acceptance tests, which create and delete real objects in Grouper |
+| Command             | Does                                                                      |
+| ------------------- | ------------------------------------------------------------------------- |
+| `make build`        | builds the provider                                                       |
+| `make lint`         | runs golangci-lint                                                        |
+| `make generate`     | regenerates `docs/` from the schemas and `examples/`                      |
+| `make test`         | runs unit tests                                                           |
+| `make testacc`      | starts a local Grouper in Docker and runs the acceptance tests against it |
+| `make grouper-down` | stops the local Grouper and deletes its data                              |
+
+With Podman, add `COMPOSE=podman-compose` to the `make` commands.
