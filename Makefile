@@ -36,4 +36,5 @@ testacc: grouper-up
 	GROUPER_URL=http://localhost:8080/grouper/servicesRest/v2_6_000 \
 	GROUPER_USERNAME=GrouperSystem \
 	GROUPER_PASSWORD=grouper \
+	GROUPER_TIME_ZONE=UTC \
 	go test -v -cover -timeout 120m ./...

@@ -24,5 +24,6 @@ provider "grouper" {
 ### Optional
 
 - `password` (String, Sensitive) Password for basic auth. Defaults to `GROUPER_PASSWORD`.
+- `time_zone` (String) Time zone of the Grouper server, such as `America/New_York`, which Grouper reads and writes dates in. Only needed for groups with scheduled members. Defaults to `GROUPER_TIME_ZONE`.
 - `url` (String) Grouper web services REST endpoint, such as `https://grouper.example.edu/grouper-ws/servicesRest/v2_6_000`. Defaults to `GROUPER_URL`.
 - `username` (String) Username for basic auth. Defaults to `GROUPER_USERNAME`.

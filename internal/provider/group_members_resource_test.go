@@ -109,6 +109,92 @@ func testAccExpectSubjects(address string, ids ...string) statecheck.StateCheck 
 	}))
 }
 
+func TestAccGroupMembersScheduled(t *testing.T) {
+	root := acctest.RandomWithPrefix("tftest")
+	members := "grouper_group_members.team"
+	scheduled := func(count int) statecheck.StateCheck {
+		return statecheck.ExpectKnownValue(members, tfjsonpath.New("scheduled"), knownvalue.SetSizeExact(count))
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckGroupsDestroyed(root+":team", root+":leads"),
+		Steps: []resource.TestStep{
+			{
+				// Offsets other than the server's survive the round trip, along with a nested group
+				// that hasn't started yet
+				Config: testAccGroupMembersConfig(root, `
+  subjects = { jdbc = ["charlie"] }
+  scheduled = [
+    { subject = "lucy", source = "jdbc", ends = "2031-01-02T03:04:05-05:00" },
+    { subject = "linus", source = "jdbc", starts = "2030-01-01T00:00:00Z", ends = "2031-01-01T00:00:00Z" },
+    { group = grouper_group.leads.id, starts = "2030-01-01T00:00:00.5Z" },
+  ]
+`),
+				ConfigStateChecks: []statecheck.StateCheck{
+					testAccExpectSubjects(members, "charlie"),
+					scheduled(3),
+					statecheck.ExpectKnownValue(members, tfjsonpath.New("scheduled"), knownvalue.SetPartial([]knownvalue.Check{
+						knownvalue.ObjectPartial(map[string]knownvalue.Check{
+							"subject": knownvalue.StringExact("lucy"),
+							"ends":    knownvalue.StringExact("2031-01-02T03:04:05-05:00"),
+						}),
+					})),
+				},
+			},
+			{
+				// Moving lucy to subjects clears her end date, and linus's has passed
+				Config: testAccGroupMembersConfig(root, `
+  subjects = { jdbc = ["charlie", "lucy"] }
+  scheduled = [
+    { subject = "linus", source = "jdbc", ends = "2020-01-01T00:00:00Z" },
+  ]
+`),
+				ConfigStateChecks: []statecheck.StateCheck{
+					testAccExpectSubjects(members, "charlie", "lucy"),
+					scheduled(1),
+				},
+			},
+			{
+				ResourceName:                         members,
+				ImportState:                          true,
+				ImportStateId:                        root + ":team",
+				ImportStateVerify:                    true,
+				ImportStateVerifyIdentifierAttribute: "group",
+			},
+			{
+				// An ended member is still removed when it leaves the config
+				Config: testAccGroupMembersConfig(root, `
+  subjects = { jdbc = ["charlie", "lucy"] }
+`),
+				ConfigStateChecks: []statecheck.StateCheck{
+					scheduled(0),
+				},
+			},
+		},
+	})
+}
+
+func TestAccGroupMembersScheduledNeedsTimeZone(t *testing.T) {
+	t.Setenv("GROUPER_TIME_ZONE", "")
+	root := acctest.RandomWithPrefix("tftest")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckGroupsDestroyed(root+":team", root+":leads"),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccGroupMembersConfig(root, `
+  scheduled = [{ subject = "lucy", source = "jdbc", ends = "2031-01-01T00:00:00Z" }]
+`),
+				ExpectError: regexp.MustCompile(`need the server's time zone`),
+			},
+		},
+	})
+}
+
 func TestAccGroupMembersResourceValidation(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
@@ -132,6 +218,53 @@ resource "grouper_group_members" "x" {
 }
 `,
 				ExpectError: regexp.MustCompile(`set must contain at least 1 elements`),
+			},
+			{
+				Config: `
+resource "grouper_group_members" "x" {
+  group     = "00000000000000000000000000000000"
+  subjects  = { jdbc = ["charlie"] }
+  scheduled = [{ subject = "charlie", source = "jdbc", ends = "2031-01-01T00:00:00Z" }]
+}
+`,
+				ExpectError: regexp.MustCompile(`Duplicate member`),
+			},
+			{
+				Config: `
+resource "grouper_group_members" "x" {
+  group     = "00000000000000000000000000000000"
+  scheduled = [{ subject = "charlie", source = "jdbc", starts = "2031-01-01T00:00:00Z", ends = "2030-01-01T00:00:00Z" }]
+}
+`,
+				ExpectError: regexp.MustCompile(`Membership ends before it starts`),
+			},
+			{
+				// Undated members go in subjects
+				Config: `
+resource "grouper_group_members" "x" {
+  group     = "00000000000000000000000000000000"
+  scheduled = [{ subject = "charlie", source = "jdbc" }]
+}
+`,
+				ExpectError: regexp.MustCompile(`Invalid Attribute Combination`),
+			},
+			{
+				Config: `
+resource "grouper_group_members" "x" {
+  group     = "00000000000000000000000000000000"
+  scheduled = [{ subject = "charlie", ends = "2031-01-01T00:00:00Z" }]
+}
+`,
+				ExpectError: regexp.MustCompile(`Invalid Attribute Combination`),
+			},
+			{
+				Config: `
+resource "grouper_group_members" "x" {
+  group     = "00000000000000000000000000000000"
+  scheduled = [{ subject = "charlie", source = "jdbc", ends = "2031-01-01" }]
+}
+`,
+				ExpectError: regexp.MustCompile(`Invalid time`),
 			},
 		},
 	})
@@ -167,13 +300,13 @@ func testAccAddMember(t *testing.T, groupName, subjectID, source string) {
 	if err != nil || group == nil {
 		t.Fatalf("finding %s: %v", groupName, err)
 	}
-	members, err := client.GroupMembers(ctx, group.UUID, grouper.ImmediateMembers)
+	memberships, err := client.GroupMemberships(ctx, group.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	members = append(members, grouper.Subject{ID: subjectID, SourceID: source})
-	if err := client.SetGroupMembers(ctx, group.UUID, members); err != nil {
+	memberships = append(memberships, grouper.Membership{Subject: grouper.Subject{ID: subjectID, SourceID: source}})
+	if err := client.SetGroupMemberships(ctx, group.UUID, memberships); err != nil {
 		t.Fatal(err)
 	}
 }

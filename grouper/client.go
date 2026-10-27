@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Client calls one Grouper web services endpoint as one user.
@@ -17,18 +19,61 @@ type Client struct {
 	username string
 	password string
 	http     *http.Client
+	// Time zone of Grouper's dates, nil if unset
+	location *time.Location
+}
+
+// Option configures a Client.
+type Option func(*Client)
+
+// WithTimeZone sets the Grouper server's time zone, which membership dates are sent and read in.
+func WithTimeZone(location *time.Location) Option {
+	return func(c *Client) {
+		c.location = location
+	}
 }
 
 // NewClient returns a client for url, such as
 // https://grouper.example.edu/grouper-ws/servicesRest/v2_6_000.
-func NewClient(url, username, password string) *Client {
-	return &Client{
+func NewClient(url, username, password string, options ...Option) *Client {
+	c := &Client{
 		url:      strings.TrimSuffix(url, "/"),
 		username: username,
 		password: password,
 		http:     http.DefaultClient,
 	}
+	for _, option := range options {
+		option(c)
+	}
+	return c
 }
+
+// Layout of Grouper's dates, which have no time zone
+const timeLayout = "2006/01/02 15:04:05.000"
+
+// t as Grouper writes it, or empty for the zero time
+func (c *Client) formatTime(t time.Time) (string, error) {
+	if t.IsZero() {
+		return "", nil
+	}
+	if c.location == nil {
+		return "", errNoTimeZone
+	}
+	return t.In(c.location).Format(timeLayout), nil
+}
+
+// Time Grouper wrote as s, or the zero time for an empty s
+func (c *Client) parseTime(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+	if c.location == nil {
+		return time.Time{}, errNoTimeZone
+	}
+	return time.ParseInLocation(timeLayout, s, c.location)
+}
+
+var errNoTimeZone = errors.New("grouper: dated memberships need the server's time zone, set with WithTimeZone")
 
 // Error is a web services call that Grouper rejected or failed.
 type Error struct {

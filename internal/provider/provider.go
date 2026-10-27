@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/ap-1/terraform-provider-grouper/grouper"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -27,6 +28,7 @@ type grouperProviderModel struct {
 	URL      types.String `tfsdk:"url"`
 	Username types.String `tfsdk:"username"`
 	Password types.String `tfsdk:"password"`
+	TimeZone types.String `tfsdk:"time_zone"`
 }
 
 func New(version string) func() provider.Provider {
@@ -57,6 +59,10 @@ func (p *grouperProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 				Optional:            true,
 				Sensitive:           true,
 			},
+			"time_zone": schema.StringAttribute{
+				MarkdownDescription: "Time zone of the Grouper server, such as `America/New_York`, which Grouper reads and writes dates in. Only needed for groups with scheduled members. Defaults to `GROUPER_TIME_ZONE`.",
+				Optional:            true,
+			},
 		},
 	}
 }
@@ -71,11 +77,28 @@ func (p *grouperProvider) Configure(ctx context.Context, req provider.ConfigureR
 	url := resolve(resp, "url", model.URL, "GROUPER_URL")
 	username := resolve(resp, "username", model.Username, "GROUPER_USERNAME")
 	password := resolve(resp, "password", model.Password, "GROUPER_PASSWORD")
+	if model.TimeZone.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("time_zone"), "Unknown Grouper time_zone", "The provider can't read or write dates until time_zone is known.")
+	}
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	client := grouper.NewClient(url, username, password)
+	var options []grouper.Option
+	timeZone := model.TimeZone.ValueString()
+	if model.TimeZone.IsNull() {
+		timeZone = os.Getenv("GROUPER_TIME_ZONE")
+	}
+	if timeZone != "" {
+		location, err := time.LoadLocation(timeZone)
+		if err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("time_zone"), "Invalid Grouper time_zone", err.Error())
+			return
+		}
+		options = append(options, grouper.WithTimeZone(location))
+	}
+
+	client := grouper.NewClient(url, username, password, options...)
 	resp.DataSourceData = client
 	resp.ResourceData = client
 }

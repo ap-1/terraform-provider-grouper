@@ -17,6 +17,11 @@ resource "grouper_group_members" "admins" {
   group    = grouper_group.admins.id
   subjects = { ldap = ["charlie", "lucy"] }
   groups   = [grouper_group.leads.id]
+
+  scheduled = [
+    { subject = "linus", source = "ldap", ends = "2026-05-15T00:00:00-04:00" },
+    { group = grouper_group.graders.id, starts = "2026-08-20T00:00:00-04:00" },
+  ]
 }
 ```
 
@@ -30,7 +35,19 @@ resource "grouper_group_members" "admins" {
 ### Optional
 
 - `groups` (Set of String) UUIDs of groups nested in the group, whose members become members of this group too. Use this rather than `subjects` for groups.
+- `scheduled` (Attributes Set) Members that Grouper adds on `starts` and removes on `ends`, without OpenTofu running. A member that has ended stays listed until it's removed from this set. Needs the provider's `time_zone`. (see [below for nested schema](#nestedatt--scheduled))
 - `subjects` (Map of Set of String) Subject IDs of people in the group, keyed by subject source, such as `{ ldap = ["charlie", "lucy"] }`.
+
+<a id="nestedatt--scheduled"></a>
+### Nested Schema for `scheduled`
+
+Optional:
+
+- `ends` (String) When the membership ends, as an RFC 3339 time.
+- `group` (String) UUID of a group to nest.
+- `source` (String) Subject source of `subject`, such as `ldap`.
+- `starts` (String) When the membership starts, as an RFC 3339 time such as `2026-08-20T00:00:00-04:00`. At least one of `starts` and `ends` is required.
+- `subject` (String) Subject ID of a person. Exactly one of `subject` and `group` is required.
 
 ## Import
 
