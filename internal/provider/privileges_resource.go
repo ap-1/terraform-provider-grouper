@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ap-1/terraform-provider-grouper/grouper"
@@ -68,16 +69,17 @@ var folderPrivilegeKind = privilegeKind{
 }
 
 type privilegesResource struct {
-	kind     privilegeKind
-	provider *providerData
+	kind   privilegeKind
+	client *grouper.Client
 }
 
 // Held by path rather than struct tags, since the target attribute is named group or folder
 type privilegesResourceModel struct {
-	Target       types.String
-	Subject      types.String
-	SubjectGroup types.String
-	Privileges   types.Set
+	Target        types.String
+	Subject       types.String
+	SubjectSource types.String
+	SubjectGroup  types.String
+	Privileges    types.Set
 }
 
 type attributeGetter interface {
@@ -90,10 +92,11 @@ type attributeSetter interface {
 
 func (r *privilegesResource) fields(m *privilegesResourceModel) map[string]any {
 	return map[string]any{
-		r.kind.target:   &m.Target,
-		"subject":       &m.Subject,
-		"subject_group": &m.SubjectGroup,
-		"privileges":    &m.Privileges,
+		r.kind.target:    &m.Target,
+		"subject":        &m.Subject,
+		"subject_source": &m.SubjectSource,
+		"subject_group":  &m.SubjectGroup,
+		"privileges":     &m.Privileges,
 	}
 }
 
@@ -136,9 +139,18 @@ func (r *privilegesResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				PlanModifiers:       replace,
 			},
 			"subject": schema.StringAttribute{
-				MarkdownDescription: "Subject ID of a person from the provider's `subject_source`. Exactly one of `subject` and `subject_group` is required.",
+				MarkdownDescription: "Subject ID of a person or other subject, such as `GrouperAll` for everyone. Requires `subject_source`. Exactly one of `subject` and `subject_group` is required.",
 				Optional:            true,
 				PlanModifiers:       replace,
+			},
+			"subject_source": schema.StringAttribute{
+				MarkdownDescription: "Subject source of `subject`, such as `ldap`, or `g:isa` for `GrouperAll`.",
+				Optional:            true,
+				PlanModifiers:       replace,
+				Validators: []validator.String{
+					stringvalidator.LengthAtLeast(1),
+					stringvalidator.NoneOf(grouper.GroupSource),
+				},
 			},
 			"subject_group": schema.StringAttribute{
 				MarkdownDescription: "UUID of a group, whose members all get the privileges. Exactly one of `subject` and `subject_group` is required.",
@@ -161,11 +173,12 @@ func (r *privilegesResource) Schema(_ context.Context, _ resource.SchemaRequest,
 func (r *privilegesResource) ConfigValidators(context.Context) []resource.ConfigValidator {
 	return []resource.ConfigValidator{
 		resourcevalidator.ExactlyOneOf(path.MatchRoot("subject"), path.MatchRoot("subject_group")),
+		resourcevalidator.RequiredTogether(path.MatchRoot("subject"), path.MatchRoot("subject_source")),
 	}
 }
 
 func (r *privilegesResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	r.provider = configuredProvider(req.ProviderData, &resp.Diagnostics)
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
 func (r *privilegesResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -182,10 +195,11 @@ func (r *privilegesResource) Read(ctx context.Context, req resource.ReadRequest,
 		return
 	}
 
-	privileges, err := r.kind.get(r.provider.client, ctx, state.Target.ValueString(), r.subject(state))
+	privileges, err := r.kind.get(r.client, ctx, state.Target.ValueString(), r.subject(state))
 
-	// The target or subject group was deleted, taking the privileges with it
-	if hasErrorCode(err, r.kind.notFoundCode, "SUBJECT_NOT_FOUND") {
+	// The target was deleted, taking the privileges with it. A deleted subject reads as having
+	// none, so the next apply tries to grant them again and fails.
+	if hasErrorCode(err, r.kind.notFoundCode) {
 		resp.State.RemoveResource(ctx)
 		return
 	}
@@ -204,22 +218,23 @@ func (r *privilegesResource) Delete(ctx context.Context, req resource.DeleteRequ
 		return
 	}
 
-	err := r.kind.set(r.provider.client, ctx, state.Target.ValueString(), r.subject(state), nil)
-	if err != nil && !hasErrorCode(err, r.kind.notFoundCode, "SUBJECT_NOT_FOUND") {
+	err := r.kind.set(r.client, ctx, state.Target.ValueString(), r.subject(state), nil)
+	if err != nil && !hasErrorCode(err, r.kind.notFoundCode) {
 		resp.Diagnostics.AddError("Unable to revoke privileges", err.Error())
 	}
 }
 
-// Imports from "<target name> <subject>", where the subject is a person's subject ID or a group's
-// full name, which always contains a colon
+// Imports from "<target name> <subject source> <subject ID>", or "<target name> <group name>" when
+// the subject is a group
 func (r *privilegesResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	targetName, subject, ok := strings.Cut(req.ID, " ")
-	if !ok || targetName == "" || subject == "" {
-		resp.Diagnostics.AddError("Invalid import ID", fmt.Sprintf("Expected \"<%s name> <subject ID or group name>\", got %q.", r.kind.target, req.ID))
+	parts := strings.Split(req.ID, " ")
+	if len(parts) < 2 || len(parts) > 3 || slices.Contains(parts, "") {
+		resp.Diagnostics.AddError("Invalid import ID", fmt.Sprintf("Expected \"<%[1]s name> <subject source> <subject ID>\" or \"<%[1]s name> <group name>\", got %q.", r.kind.target, req.ID))
 		return
 	}
+	targetName := parts[0]
 
-	targetUUID, err := r.kind.find(r.provider.client, ctx, targetName)
+	targetUUID, err := r.kind.find(r.client, ctx, targetName)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to import privileges", err.Error())
 		return
@@ -230,12 +245,14 @@ func (r *privilegesResource) ImportState(ctx context.Context, req resource.Impor
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root(r.kind.target), targetUUID)...)
 
-	if !strings.Contains(subject, ":") {
-		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("subject"), subject)...)
+	if len(parts) == 3 {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("subject_source"), parts[1])...)
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("subject"), parts[2])...)
 		return
 	}
+	subject := parts[1]
 
-	group, err := r.provider.client.FindGroup(ctx, subject)
+	group, err := r.client.FindGroup(ctx, subject)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to import privileges", err.Error())
 		return
@@ -260,7 +277,7 @@ func (r *privilegesResource) apply(ctx context.Context, plan attributeGetter, st
 		return
 	}
 
-	if err := r.kind.set(r.provider.client, ctx, m.Target.ValueString(), r.subject(m), privileges); err != nil {
+	if err := r.kind.set(r.client, ctx, m.Target.ValueString(), r.subject(m), privileges); err != nil {
 		diags.AddError("Unable to set privileges", err.Error())
 		return
 	}
@@ -272,5 +289,5 @@ func (r *privilegesResource) subject(m privilegesResourceModel) grouper.Subject 
 	if !m.SubjectGroup.IsNull() {
 		return grouper.Subject{ID: m.SubjectGroup.ValueString(), SourceID: grouper.GroupSource}
 	}
-	return grouper.Subject{ID: m.Subject.ValueString(), SourceID: r.provider.subjectSource}
+	return grouper.Subject{ID: m.Subject.ValueString(), SourceID: m.SubjectSource.ValueString()}
 }

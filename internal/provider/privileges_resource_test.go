@@ -34,6 +34,9 @@ func TestAccPrivilegesResources(t *testing.T) {
 						knownvalue.StringExact("update"),
 					})),
 					statecheck.ExpectKnownValue("grouper_group_privileges.charlie", tfjsonpath.New("privileges"), knownvalue.SetExact([]knownvalue.Check{
+						knownvalue.StringExact("optin"),
+					})),
+					statecheck.ExpectKnownValue("grouper_group_privileges.everyone", tfjsonpath.New("privileges"), knownvalue.SetExact([]knownvalue.Check{
 						knownvalue.StringExact("view"),
 					})),
 					statecheck.ExpectKnownValue("grouper_folder_privileges.director", tfjsonpath.New("privileges"), knownvalue.SetExact([]knownvalue.Check{
@@ -69,20 +72,33 @@ func TestAccPrivilegesResources(t *testing.T) {
 				ImportState:   true,
 				ImportStateId: root + ":members " + root + ":director",
 				ImportStateCheck: testAccCheckImportedPrivileges(map[string]string{
-					"subject":      "",
-					"privileges.#": "1",
-					"privileges.0": "update",
+					"subject":        "",
+					"subject_source": "",
+					"privileges.#":   "1",
+					"privileges.0":   "update",
 				}),
 			},
 			{
 				ResourceName:  "grouper_group_privileges.charlie",
 				ImportState:   true,
-				ImportStateId: root + ":members charlie",
+				ImportStateId: root + ":members jdbc charlie",
 				ImportStateCheck: testAccCheckImportedPrivileges(map[string]string{
-					"subject":       "charlie",
-					"subject_group": "",
-					"privileges.#":  "1",
-					"privileges.0":  "view",
+					"subject":        "charlie",
+					"subject_source": "jdbc",
+					"subject_group":  "",
+					"privileges.#":   "1",
+					"privileges.0":   "optin",
+				}),
+			},
+			{
+				ResourceName:  "grouper_group_privileges.everyone",
+				ImportState:   true,
+				ImportStateId: root + ":members g:isa GrouperAll",
+				ImportStateCheck: testAccCheckImportedPrivileges(map[string]string{
+					"subject":        "GrouperAll",
+					"subject_source": "g:isa",
+					"privileges.#":   "1",
+					"privileges.0":   "view",
 				}),
 			},
 		},
@@ -113,10 +129,21 @@ func TestAccPrivilegesResourceValidation(t *testing.T) {
 			{
 				Config: `
 resource "grouper_group_privileges" "both" {
-  group         = "00000000000000000000000000000000"
-  subject       = "charlie"
-  subject_group = "00000000000000000000000000000000"
-  privileges    = ["read"]
+  group          = "00000000000000000000000000000000"
+  subject        = "charlie"
+  subject_source = "jdbc"
+  subject_group  = "00000000000000000000000000000000"
+  privileges     = ["read"]
+}
+`,
+				ExpectError: regexp.MustCompile(`Invalid Attribute Combination`),
+			},
+			{
+				Config: `
+resource "grouper_group_privileges" "no_source" {
+  group      = "00000000000000000000000000000000"
+  subject    = "charlie"
+  privileges = ["read"]
 }
 `,
 				ExpectError: regexp.MustCompile(`Invalid Attribute Combination`),
@@ -125,9 +152,10 @@ resource "grouper_group_privileges" "both" {
 				// stemAdmin is a folder privilege
 				Config: `
 resource "grouper_group_privileges" "folder_privilege" {
-  group      = "00000000000000000000000000000000"
-  subject    = "charlie"
-  privileges = ["stemAdmin"]
+  group          = "00000000000000000000000000000000"
+  subject        = "charlie"
+  subject_source = "jdbc"
+  privileges     = ["stemAdmin"]
 }
 `,
 				ExpectError: regexp.MustCompile(`value must be one of`),
@@ -136,7 +164,9 @@ resource "grouper_group_privileges" "folder_privilege" {
 	})
 }
 
-// A members group, a director group with privileges on it and its folder, and charlie with view
+// A members group, a director group with privileges on it and its folder, charlie in the director
+// group with optin of his own, and everyone with view. charlie's inherited privileges must not
+// show up as his own.
 func testAccPrivilegesConfig(root, directorPrivileges string) string {
 	return fmt.Sprintf(`
 resource "grouper_folder" "root" {
@@ -157,10 +187,23 @@ resource "grouper_group_privileges" "director" {
   privileges    = %s
 }
 
+resource "grouper_group_members" "director" {
+  group    = grouper_group.director.id
+  subjects = { jdbc = ["charlie"] }
+}
+
 resource "grouper_group_privileges" "charlie" {
-  group      = grouper_group.members.id
-  subject    = "charlie"
-  privileges = ["view"]
+  group          = grouper_group.members.id
+  subject        = "charlie"
+  subject_source = "jdbc"
+  privileges     = ["optin"]
+}
+
+resource "grouper_group_privileges" "everyone" {
+  group          = grouper_group.members.id
+  subject        = "GrouperAll"
+  subject_source = "g:isa"
+  privileges     = ["view"]
 }
 
 resource "grouper_folder_privileges" "director" {

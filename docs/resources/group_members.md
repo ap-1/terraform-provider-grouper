@@ -15,7 +15,7 @@ Sets the immediate members of a Grouper group, removing anyone else. Members the
 ```terraform
 resource "grouper_group_members" "admins" {
   group    = grouper_group.admins.id
-  subjects = ["charlie", "lucy"]
+  subjects = { ldap = ["charlie", "lucy"] }
   groups   = [grouper_group.leads.id]
 }
 ```
@@ -29,8 +29,8 @@ resource "grouper_group_members" "admins" {
 
 ### Optional
 
-- `groups` (Set of String) UUIDs of groups nested in the group, whose members become members of this group too.
-- `subjects` (Set of String) Subject IDs of people in the group, from the provider's `subject_source`.
+- `groups` (Set of String) UUIDs of groups nested in the group, whose members become members of this group too. Use this rather than `subjects` for groups.
+- `subjects` (Map of Set of String) Subject IDs of people in the group, keyed by subject source, such as `{ ldap = ["charlie", "lucy"] }`.
 
 ## Import
 

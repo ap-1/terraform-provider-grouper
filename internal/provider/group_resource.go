@@ -107,9 +107,7 @@ func (r *groupResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 }
 
 func (r *groupResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if p := configuredProvider(req.ProviderData, &resp.Diagnostics); p != nil {
-		r.client = p.client
-	}
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
 func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

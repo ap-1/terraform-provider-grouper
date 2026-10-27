@@ -27,47 +27,49 @@ func TestAccGroupMembersResource(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: testAccGroupMembersConfig(root, `
-  subjects = ["charlie", "lucy"]
+  subjects = { jdbc = ["charlie", "lucy"] }
   groups   = [grouper_group.leads.id]
 `),
 				ConfigStateChecks: []statecheck.StateCheck{
-					statecheck.ExpectKnownValue(members, tfjsonpath.New("subjects"), knownvalue.SetExact([]knownvalue.Check{
-						knownvalue.StringExact("charlie"),
-						knownvalue.StringExact("lucy"),
-					})),
+					testAccExpectSubjects(members, "charlie", "lucy"),
 					statecheck.ExpectKnownValue(members, tfjsonpath.New("groups"), knownvalue.SetSizeExact(1)),
 				},
 			},
 			{
 				// Omitting groups removes the nested group
 				Config: testAccGroupMembersConfig(root, `
-  subjects = ["linus"]
+  subjects = { jdbc = ["linus"] }
 `),
 				ConfigStateChecks: []statecheck.StateCheck{
-					statecheck.ExpectKnownValue(members, tfjsonpath.New("subjects"), knownvalue.SetExact([]knownvalue.Check{
-						knownvalue.StringExact("linus"),
-					})),
+					testAccExpectSubjects(members, "linus"),
 					statecheck.ExpectKnownValue(members, tfjsonpath.New("groups"), knownvalue.SetSizeExact(0)),
 				},
 			},
 			{
 				// An unknown person fails without changing the group
 				Config: testAccGroupMembersConfig(root, `
-  subjects = ["linus", "snoopy"]
+  subjects = { jdbc = ["linus", "snoopy"] }
 `),
 				ExpectError: regexp.MustCompile(`can't find subjects snoopy`),
 			},
 			{
+				// So does a known person in the wrong source
 				Config: testAccGroupMembersConfig(root, `
-  subjects = ["linus"]
+  subjects = { jdbc = ["linus"], "g:isa" = ["charlie"] }
+`),
+				ExpectError: regexp.MustCompile(`can't find subjects charlie`),
+			},
+			{
+				Config: testAccGroupMembersConfig(root, `
+  subjects = { jdbc = ["linus"] }
 `),
 				PlanOnly: true,
 			},
 			{
 				// Members added outside OpenTofu are removed
-				PreConfig: func() { testAccAddMember(t, root+":team", "charlie") },
+				PreConfig: func() { testAccAddMember(t, root+":team", "charlie", "jdbc") },
 				Config: testAccGroupMembersConfig(root, `
-  subjects = ["linus"]
+  subjects = { jdbc = ["linus"] }
 `),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
@@ -75,9 +77,7 @@ func TestAccGroupMembersResource(t *testing.T) {
 					},
 				},
 				ConfigStateChecks: []statecheck.StateCheck{
-					statecheck.ExpectKnownValue(members, tfjsonpath.New("subjects"), knownvalue.SetExact([]knownvalue.Check{
-						knownvalue.StringExact("linus"),
-					})),
+					testAccExpectSubjects(members, "linus"),
 				},
 			},
 			{
@@ -86,6 +86,52 @@ func TestAccGroupMembersResource(t *testing.T) {
 				ImportStateId:                        root + ":team",
 				ImportStateVerify:                    true,
 				ImportStateVerifyIdentifierAttribute: "group",
+			},
+			{
+				// Removing everyone leaves no source keys behind
+				Config: testAccGroupMembersConfig(root, ""),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(members, tfjsonpath.New("subjects"), knownvalue.MapExact(map[string]knownvalue.Check{})),
+				},
+			},
+		},
+	})
+}
+
+// Expects the resource's subjects to be exactly ids from the jdbc source
+func testAccExpectSubjects(address string, ids ...string) statecheck.StateCheck {
+	checks := make([]knownvalue.Check, len(ids))
+	for i, id := range ids {
+		checks[i] = knownvalue.StringExact(id)
+	}
+	return statecheck.ExpectKnownValue(address, tfjsonpath.New("subjects"), knownvalue.MapExact(map[string]knownvalue.Check{
+		"jdbc": knownvalue.SetExact(checks),
+	}))
+}
+
+func TestAccGroupMembersResourceValidation(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// Groups go in groups
+				Config: `
+resource "grouper_group_members" "x" {
+  group    = "00000000000000000000000000000000"
+  subjects = { "g:gsa" = ["00000000000000000000000000000000"] }
+}
+`,
+				ExpectError: regexp.MustCompile(`value must be none of`),
+			},
+			{
+				Config: `
+resource "grouper_group_members" "x" {
+  group    = "00000000000000000000000000000000"
+  subjects = { jdbc = [] }
+}
+`,
+				ExpectError: regexp.MustCompile(`set must contain at least 1 elements`),
 			},
 		},
 	})
@@ -112,8 +158,8 @@ resource "grouper_group_members" "team" {
 `, root, attributes)
 }
 
-// Adds a person to a group directly, keeping its other members
-func testAccAddMember(t *testing.T, groupName, subjectID string) {
+// Adds a subject to a group directly, keeping its other members
+func testAccAddMember(t *testing.T, groupName, subjectID, source string) {
 	ctx := context.Background()
 	client := grouper.NewClient(os.Getenv("GROUPER_URL"), os.Getenv("GROUPER_USERNAME"), os.Getenv("GROUPER_PASSWORD"))
 
@@ -126,7 +172,7 @@ func testAccAddMember(t *testing.T, groupName, subjectID string) {
 		t.Fatal(err)
 	}
 
-	members = append(members, grouper.Subject{ID: subjectID, SourceID: os.Getenv("GROUPER_SUBJECT_SOURCE")})
+	members = append(members, grouper.Subject{ID: subjectID, SourceID: source})
 	if err := client.SetGroupMembers(ctx, group.UUID, members); err != nil {
 		t.Fatal(err)
 	}

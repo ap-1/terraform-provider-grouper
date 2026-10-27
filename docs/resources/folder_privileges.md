@@ -30,8 +30,9 @@ resource "grouper_folder_privileges" "director" {
 
 ### Optional
 
-- `subject` (String) Subject ID of a person from the provider's `subject_source`. Exactly one of `subject` and `subject_group` is required.
+- `subject` (String) Subject ID of a person or other subject, such as `GrouperAll` for everyone. Requires `subject_source`. Exactly one of `subject` and `subject_group` is required.
 - `subject_group` (String) UUID of a group, whose members all get the privileges. Exactly one of `subject` and `subject_group` is required.
+- `subject_source` (String) Subject source of `subject`, such as `ldap`, or `g:isa` for `GrouperAll`.
 
 ## Import
 
@@ -40,7 +41,8 @@ Import is supported using the following syntax:
 The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
 
 ```shell
-# Import by the folder's current full name, then the subject: a person's subject ID, or a group's
-# current full name, which always contains a colon
+# Import by the folder's current full name, then the subject: a subject source and subject ID, or a
+# group's current full name
 tofu import grouper_folder_privileges.director 'org:dept:apps org:dept:director'
+tofu import grouper_folder_privileges.charlie 'org:dept:apps ldap charlie'
 ```
